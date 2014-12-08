@@ -14,6 +14,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\HttpKernel\Exception\FlattenException;
 use Symfony\Component\HttpKernel\KernelInterface;
 
+use JMS\JobQueueBundle\DatabaseExceptionHandler;
+
 /**
  * Records debugging information for executed commands.
  *
@@ -47,6 +49,10 @@ class Application extends BaseApplication
 
             return $rs;
         } catch (\Exception $ex) {
+            if (DatabaseExceptionHandler::exceptionIsIgnorable($ex)) {
+                return;
+            }
+
             $this->saveDebugInformation($ex);
 
             throw $ex;
@@ -64,7 +70,12 @@ class Application extends BaseApplication
         );
 
         if(!$this->insertStatStmt instanceof Statement){
-            $this->insertStatStmt = $this->getConnection()->prepare($this->insertStatStmt);
+            try {
+                $this->insertStatStmt = $this->getConnection()->prepare($this->insertStatStmt);
+            } catch (\Exception $e) {
+                DatabaseExceptionHandler::handle($e);
+                return;
+            }
         }
 
         $this->insertStatStmt->bindValue('jobId', $jobId, \PDO::PARAM_INT);
@@ -83,12 +94,16 @@ class Application extends BaseApplication
             return;
         }
 
-        $this->getConnection()->executeUpdate("UPDATE jms_jobs SET stackTrace = :trace, memoryUsage = :memoryUsage, memoryUsageReal = :memoryUsageReal WHERE id = :id", array(
-            'id' => $jobId,
-            'memoryUsage' => memory_get_peak_usage(),
-            'memoryUsageReal' => memory_get_peak_usage(true),
-            'trace' => serialize($ex ? FlattenException::create($ex) : null),
-        ));
+        try {
+            $this->getConnection()->executeUpdate("UPDATE jms_jobs SET stackTrace = :trace, memoryUsage = :memoryUsage, memoryUsageReal = :memoryUsageReal WHERE id = :id", array(
+                'id' => $jobId,
+                'memoryUsage' => memory_get_peak_usage(),
+                'memoryUsageReal' => memory_get_peak_usage(true),
+                'trace' => serialize($ex ? FlattenException::create($ex) : null),
+            ));
+        } catch (\Exception $e) {
+            DatabaseExceptionHandler::handle($e);
+        }
     }
 
     private function getConnection()

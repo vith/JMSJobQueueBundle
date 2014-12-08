@@ -42,7 +42,11 @@ class JMSJobQueueBundle extends Bundle
         $registry = $this->container->get('doctrine');
         foreach ($registry->getConnections() as $con) {
             if ($con instanceof Connection) {
-                $con->getDatabasePlatform()->markDoctrineTypeCommented('jms_job_safe_object');
+                try {
+                    $con->getDatabasePlatform()->markDoctrineTypeCommented('jms_job_safe_object');
+                } catch (\Exception $e) {
+                    DatabaseExceptionHandler::handle($e);
+                }
             }
         }
     }
